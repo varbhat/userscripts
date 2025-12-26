@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         open in mpv
 // @namespace    https://github.com/varbhat/userscripts
-// @version      3.6
+// @version      1.0
 // @description  Open URLs in mpv player
 // @author       https://github.com/varbhat
 // @match        *://*/*
