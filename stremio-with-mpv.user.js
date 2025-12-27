@@ -1,12 +1,11 @@
 // ==UserScript==
 // @name         Stremio with mpv
 // @namespace    https://github.com/varbhat/userscripts
-// @version      1.3
+// @version      1.5
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=stremio.com
 // @description  Integrates stremio web with mpv (with Android support)
 // @author       https://github.com/varbhat
 // @match        https://web.stremio.com/*
-// @grant        GM_openInTab
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
@@ -289,7 +288,7 @@
                 knob.style.left = isChecked ? '25px' : '3px';
                 settings[settingKey] = isChecked;
                 GM_setValue(settingKey, isChecked);
-                
+
                 // Update visibility of desktop-only options when Android mode changes
                 if (settingKey === 'androidMode') {
                     updateDesktopOptionsVisibility();
@@ -351,7 +350,7 @@
 
             return container;
         }
-        
+
         function updateDesktopOptionsVisibility() {
             const desktopOptions = document.querySelectorAll('.desktop-only-option');
             desktopOptions.forEach(option => {
@@ -360,13 +359,13 @@
         }
 
         // Build settings UI
-        
+
         // Android Mode Section (at the top for prominence)
         settingsContainer.appendChild(createSectionHeader('Platform'));
         const androidToggle = createToggle('Android Mode', 'Use mpv-android intent (for Android devices)', 'androidMode');
         androidToggle.style.background = '#2a2a3a'; // Slightly different color to stand out
         settingsContainer.appendChild(androidToggle);
-        
+
         settingsContainer.appendChild(createSectionHeader('Playback Options'));
         const fullscreenToggle = createToggle('Fullscreen', 'Start video in fullscreen mode', 'fullscreen', 'desktop-only-option');
         settingsContainer.appendChild(fullscreenToggle);
@@ -451,7 +450,7 @@
         });
 
         document.body.appendChild(overlay);
-        
+
         // Initial visibility update
         updateDesktopOptionsVisibility();
     }
@@ -530,15 +529,15 @@
     function buildAndroidIntentUrl(streamUrl, title = '') {
         // Intent format: intent://URL#Intent;scheme=https;package=is.xyz.mpv;type=video/any;S.title=TITLE;end
         // We use type=video/any to force mpv to open regardless of extension
-        
+
         let intentUrl;
-        
+
         // Parse the stream URL to get scheme and path
         try {
             const urlObj = new URL(streamUrl);
             const scheme = urlObj.protocol.replace(':', ''); // Remove trailing colon
             const urlWithoutScheme = streamUrl.replace(`${scheme}://`, '');
-            
+
             // Build the intent URL
             // Format: intent://host/path#Intent;scheme=SCHEME;package=is.xyz.mpv;type=video/any;end
             intentUrl = `intent://${urlWithoutScheme}#Intent;`;
@@ -546,15 +545,15 @@
             intentUrl += `package=is.xyz.mpv;`;
             intentUrl += `action=android.intent.action.VIEW;`;
             intentUrl += `type=video/any;`; // Force mpv to open regardless of extension
-            
+
             // Add title if provided
             if (title) {
                 // S. prefix for String extra
                 intentUrl += `S.title=${encodeURIComponent(title)};`;
             }
-            
+
             intentUrl += `end`;
-            
+
         } catch (e) {
             console.error('[Stremio mpv] Error building Android intent URL:', e);
             // Fallback: try direct intent with the URL as-is
@@ -565,7 +564,7 @@
             intentUrl += `type=video/any;`;
             intentUrl += `end`;
         }
-        
+
         return intentUrl;
     }
 
@@ -582,7 +581,7 @@
         }
 
         let launchUrl;
-        
+
         if (settings.androidMode) {
             // Use Android intent for mpv-android
             launchUrl = buildAndroidIntentUrl(streamUrl, options.title || '');
@@ -598,7 +597,7 @@
             if (settings.newWindow) launchUrl += '&new_window=1';
             if (settings.player) launchUrl += `&player=${encodeURIComponent(settings.player)}`;
             if (settings.flags) launchUrl += `&flags=${encodeURIComponent(settings.flags)}`;
-            
+
             console.log('[Stremio mpv] Opening with desktop protocol:', launchUrl);
         }
 
@@ -607,8 +606,9 @@
                 // For Android, we need to navigate directly to the intent URL
                 window.location.href = launchUrl;
             } else {
-                // For desktop, use GM_openInTab
-                GM_openInTab(launchUrl, { active: true, insert: true });
+              const link = document.createElement('a');
+              link.href = launchUrl;
+              link.click();
             }
             if (options.onOpen) setTimeout(options.onOpen, 100);
         } catch (error) {
@@ -659,7 +659,7 @@
     // Inject inline mpv button styles (once)
     function injectInlineButtonStyles() {
         if (document.getElementById('mpv-inline-styles')) return;
-        
+
         const style = document.createElement('style');
         style.id = 'mpv-inline-styles';
         style.textContent = `
@@ -726,20 +726,20 @@
     function injectInlineButton(streamItem) {
         if (streamItem.dataset.mpvInjected) return;
         if (!streamItem.classList.contains('stream-container-JPdah')) return;
-        
+
         streamItem.dataset.mpvInjected = 'true';
         streamItem.style.position = 'relative';
-        
+
         // Create wrapper for both buttons
         const wrapper = document.createElement('div');
         wrapper.className = 'mpv-btn-wrapper';
-        
+
         // Create play button (clone of original functionality)
         const playBtn = document.createElement('div');
         playBtn.className = 'mpv-play-btn';
         playBtn.title = 'Play in Stremio';
         playBtn.innerHTML = `<svg viewBox="0 0 512 512"><path d="M396.097 246.1 164.194 85.5a13.5 13.5 0 0 0-4.787-2.08c-1.717-.37-3.492-.4-5.219-.07-1.728.3-3.377.97-4.852 1.91a13.4 13.4 0 0 0-3.743 3.64 13.7 13.7 0 0 0-2.4 7.61v321.4a13.3 13.3 0 0 0 1.029 5.1 13.2 13.2 0 0 0 2.909 4.32 13.4 13.4 0 0 0 4.347 2.89c1.624.65 3.363 1 5.116.98 2.723.03 5.382-.82 7.6-2.39l231.903-160.6c1.448-1 2.684-2.28 3.64-3.75a13.4 13.4 0 0 0 1.925-4.85c.316-1.72.287-3.51-.084-5.22a13.2 13.2 0 0 0-2.08-4.78 13.8 13.8 0 0 0-3.401-3.41z"/></svg>`;
-        
+
         playBtn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -749,17 +749,17 @@
                 window.location.hash = href.substring(1); // Remove the # and set as hash
             }
         });
-        
+
         // Create mpv button
         const mpvBtn = document.createElement('div');
         mpvBtn.className = 'mpv-inline-btn';
         mpvBtn.title = 'Open in mpv';
         mpvBtn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 2v12h16V6H4zm6.5 2.5l5 3.5-5 3.5v-7z"/></svg>`;
-        
+
         mpvBtn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
-            
+
             const href = streamItem.getAttribute('href');
             if (href) {
                 const streamInfo = extractUrlFromPlayerHash(href);
@@ -774,10 +774,10 @@
                     return;
                 }
             }
-            
+
             notify('Failed to extract stream URL', true);
         });
-        
+
         wrapper.appendChild(playBtn);
         wrapper.appendChild(mpvBtn);
         streamItem.appendChild(wrapper);
@@ -920,7 +920,7 @@
     const observer = new MutationObserver((mutations) => {
         // Batch process stream items
         let hasNewStreamItems = false;
-        
+
         for (const mutation of mutations) {
             for (const node of mutation.addedNodes) {
                 if (node.nodeType === Node.ELEMENT_NODE) {
@@ -930,7 +930,7 @@
                     } else if (node.querySelector?.('.stream-container-JPdah')) {
                         hasNewStreamItems = true;
                     }
-                    
+
                     // Check for stream selection context menu
                     const streamMenu = node.classList?.contains('context-menu-content-Xe_lN')
                         ? node
@@ -955,7 +955,7 @@
                 }
             }
         }
-        
+
         // Process stream items in batch if any were added
         if (hasNewStreamItems) {
             requestAnimationFrame(processStreamItems);
@@ -966,11 +966,11 @@
 
     // Initial processing and periodic check (reduced frequency)
     processStreamItems();
-    
+
     setInterval(() => {
         // Process any missed stream items
         processStreamItems();
-        
+
         // Stream selection menu
         const streamMenu = document.querySelector('.context-menu-content-Xe_lN');
         if (streamMenu) injectStreamMenuButton(streamMenu);
