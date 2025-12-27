@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Stremio with mpv
 // @namespace    https://github.com/varbhat/userscripts
-// @version      1.0
+// @version      1.1
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=stremio.com
 // @description  Integrates stremio web with mpv
 // @author       https://github.com/varbhat
@@ -566,6 +566,138 @@
 
     // ==================== Button Injection ====================
 
+    // Inject inline mpv button styles (once)
+    function injectInlineButtonStyles() {
+        if (document.getElementById('mpv-inline-styles')) return;
+        
+        const style = document.createElement('style');
+        style.id = 'mpv-inline-styles';
+        style.textContent = `
+            /* Container for both buttons */
+            .mpv-btn-wrapper {
+                position: absolute;
+                right: 8px;
+                top: 50%;
+                transform: translateY(-50%);
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                z-index: 10;
+            }
+            /* Original play button clone */
+            .mpv-play-btn {
+                width: 28px;
+                height: 28px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                color: white;
+                opacity: 0.9;
+            }
+            .mpv-play-btn:hover {
+                opacity: 1;
+            }
+            .mpv-play-btn svg {
+                width: 22px;
+                height: 22px;
+                fill: currentcolor;
+            }
+            /* mpv button */
+            .mpv-inline-btn {
+                width: 28px;
+                height: 28px;
+                background: #9147ff;
+                border-radius: 4px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                transition: background 0.15s;
+                color: white;
+            }
+            .mpv-inline-btn:hover {
+                background: #772ce8;
+            }
+            .mpv-inline-btn svg {
+                width: 16px;
+                height: 16px;
+                fill: currentcolor;
+            }
+            /* Hide original play icon when we have our wrapper */
+            .stream-container-JPdah[data-mpv-injected] > svg.icon-rAZvO {
+                display: none;
+            }
+        `;
+        document.head.appendChild(style);
+    }
+
+    // Inject mpv button into a stream list item
+    function injectInlineButton(streamItem) {
+        if (streamItem.dataset.mpvInjected) return;
+        if (!streamItem.classList.contains('stream-container-JPdah')) return;
+        
+        streamItem.dataset.mpvInjected = 'true';
+        streamItem.style.position = 'relative';
+        
+        // Create wrapper for both buttons
+        const wrapper = document.createElement('div');
+        wrapper.className = 'mpv-btn-wrapper';
+        
+        // Create play button (clone of original functionality)
+        const playBtn = document.createElement('div');
+        playBtn.className = 'mpv-play-btn';
+        playBtn.title = 'Play in Stremio';
+        playBtn.innerHTML = `<svg viewBox="0 0 512 512"><path d="M396.097 246.1 164.194 85.5a13.5 13.5 0 0 0-4.787-2.08c-1.717-.37-3.492-.4-5.219-.07-1.728.3-3.377.97-4.852 1.91a13.4 13.4 0 0 0-3.743 3.64 13.7 13.7 0 0 0-2.4 7.61v321.4a13.3 13.3 0 0 0 1.029 5.1 13.2 13.2 0 0 0 2.909 4.32 13.4 13.4 0 0 0 4.347 2.89c1.624.65 3.363 1 5.116.98 2.723.03 5.382-.82 7.6-2.39l231.903-160.6c1.448-1 2.684-2.28 3.64-3.75a13.4 13.4 0 0 0 1.925-4.85c.316-1.72.287-3.51-.084-5.22a13.2 13.2 0 0 0-2.08-4.78 13.8 13.8 0 0 0-3.401-3.41z"/></svg>`;
+        
+        playBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            // Trigger the original link click
+            const href = streamItem.getAttribute('href');
+            if (href) {
+                window.location.hash = href.substring(1); // Remove the # and set as hash
+            }
+        });
+        
+        // Create mpv button
+        const mpvBtn = document.createElement('div');
+        mpvBtn.className = 'mpv-inline-btn';
+        mpvBtn.title = 'Open in mpv';
+        mpvBtn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 2v12h16V6H4zm6.5 2.5l5 3.5-5 3.5v-7z"/></svg>`;
+        
+        mpvBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const href = streamItem.getAttribute('href');
+            if (href) {
+                const streamInfo = extractUrlFromPlayerHash(href);
+                if (streamInfo && streamInfo.url) {
+                    openInMpv(streamInfo.url, {
+                        onOpen: () => {
+                            if (settings.pauseStremioOnOpen) stopStremioPlayer();
+                        }
+                    });
+                    notify(`Opening: ${streamInfo.name}`);
+                    return;
+                }
+            }
+            
+            notify('Failed to extract stream URL', true);
+        });
+        
+        wrapper.appendChild(playBtn);
+        wrapper.appendChild(mpvBtn);
+        streamItem.appendChild(wrapper);
+    }
+
+    // Process all stream items on the page
+    function processStreamItems() {
+        const streamItems = document.querySelectorAll('.stream-container-JPdah:not([data-mpv-injected])');
+        streamItems.forEach(item => injectInlineButton(item));
+    }
+
     // Create mpv button for stream selection context menu
     function createStreamMenuButton() {
         const button = document.createElement('div');
@@ -690,10 +822,23 @@
 
     // ==================== Initialization ====================
 
+    // Inject styles immediately
+    injectInlineButtonStyles();
+
     const observer = new MutationObserver((mutations) => {
+        // Batch process stream items
+        let hasNewStreamItems = false;
+        
         for (const mutation of mutations) {
             for (const node of mutation.addedNodes) {
                 if (node.nodeType === Node.ELEMENT_NODE) {
+                    // Check if node is a stream item or contains stream items
+                    if (node.classList?.contains('stream-container-JPdah')) {
+                        hasNewStreamItems = true;
+                    } else if (node.querySelector?.('.stream-container-JPdah')) {
+                        hasNewStreamItems = true;
+                    }
+                    
                     // Check for stream selection context menu
                     const streamMenu = node.classList?.contains('context-menu-content-Xe_lN')
                         ? node
@@ -704,7 +849,6 @@
                     }
 
                     // Check for player right-click context menu
-                    // Look for container with option-container-m_jZq buttons
                     const playerMenuOptions = node.querySelectorAll?.('.option-container-m_jZq');
                     if (playerMenuOptions && playerMenuOptions.length > 0) {
                         const parentContainer = playerMenuOptions[0].parentElement;
@@ -713,24 +857,33 @@
                         }
                     }
 
-                    // Also check if the node itself contains the player menu structure
                     if (node.querySelector?.('.option-container-m_jZq .label-cmqqu')) {
                         setTimeout(() => injectPlayerMenuButton(node), 10);
                     }
                 }
             }
         }
+        
+        // Process stream items in batch if any were added
+        if (hasNewStreamItems) {
+            requestAnimationFrame(processStreamItems);
+        }
     });
 
     observer.observe(document.body, { childList: true, subtree: true });
 
-    // Periodic check for menus
+    // Initial processing and periodic check (reduced frequency)
+    processStreamItems();
+    
     setInterval(() => {
+        // Process any missed stream items
+        processStreamItems();
+        
         // Stream selection menu
         const streamMenu = document.querySelector('.context-menu-content-Xe_lN');
         if (streamMenu) injectStreamMenuButton(streamMenu);
 
-        // Player context menu - find by looking for the Copy stream link option
+        // Player context menu
         const playerMenuOptions = document.querySelectorAll('.option-container-m_jZq');
         playerMenuOptions.forEach(option => {
             const label = option.querySelector('.label-cmqqu');
@@ -739,7 +892,7 @@
                 if (parentContainer) injectPlayerMenuButton(parentContainer);
             }
         });
-    }, 500);
+    }, 1000);
 
     // Register menu commands
     GM_registerMenuCommand('🎬 Play current stream in mpv', playCurrentStream);
