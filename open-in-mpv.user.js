@@ -1,12 +1,11 @@
 // ==UserScript==
 // @name         open in mpv
 // @namespace    https://github.com/varbhat/userscripts
-// @version      1.3
+// @version      1.5
 // @description  Open URLs in mpv player
 // @author       https://github.com/varbhat
 // @match        *://*/*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=mpv.io
-// @grant        GM_openInTab
 // @grant        GM_registerMenuCommand
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -220,10 +219,9 @@
         console.log('[Open in mpv] Opening:', mpvUrl);
 
         try {
-            GM_openInTab(mpvUrl, {
-                active: true,
-                insert: true
-            });
+              const link = document.createElement('a');
+              link.href = mpvUrl;
+              link.click();
         } catch (error) {
             console.error('[Open in mpv] Error:', error);
             window.open(mpvUrl, '_blank');
