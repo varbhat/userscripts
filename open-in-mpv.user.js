@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         open in mpv
 // @namespace    https://github.com/varbhat/userscripts
-// @version      1.0
+// @version      1.3
 // @description  Open URLs in mpv player
 // @author       https://github.com/varbhat
 // @match        *://*/*
@@ -22,15 +22,9 @@
         pip: GM_getValue('pip', false),
         enqueue: GM_getValue('enqueue', false),
         newWindow: GM_getValue('newWindow', false),
-        player: GM_getValue('player', ''),
-        flags: GM_getValue('flags', ''),
-        stremioPauseOnOpen: GM_getValue('stremioPauseOnOpen', true),
         stopBrowserMedia: GM_getValue('stopBrowserMedia', true),
-        // yt-dlp options
         ytdlpQuality: GM_getValue('ytdlpQuality', ''),
-        ytdlpAudioOnly: GM_getValue('ytdlpAudioOnly', false),
-        ytdlpFormat: GM_getValue('ytdlpFormat', ''),
-        ytdlpCustomOptions: GM_getValue('ytdlpCustomOptions', '')
+        ytdlpAudioOnly: GM_getValue('ytdlpAudioOnly', false)
     };
 
     // ==================== Browser Media Control ====================
@@ -57,7 +51,6 @@
         if (playButton) {
             const title = playButton.getAttribute('title') || '';
             const ariaLabel = playButton.getAttribute('aria-label') || '';
-            // Check if video is playing (button shows "Pause")
             if (title.toLowerCase().includes('pause') || ariaLabel.toLowerCase().includes('pause')) {
                 playButton.click();
                 console.log('[Open in mpv] Clicked YouTube pause button');
@@ -159,113 +152,6 @@
         });
     }
 
-    // ==================== Stremio Functions ====================
-
-    function base64UrlDecodeToUtf8(str) {
-        let base64 = str.replace(/-/g, '+').replace(/_/g, '/');
-        while (base64.length % 4) {
-            base64 += '=';
-        }
-        try {
-            const byteString = atob(base64);
-            const bytes = new Uint8Array(byteString.length);
-            for (let i = 0; i < byteString.length; i++) {
-                bytes[i] = byteString.charCodeAt(i);
-            }
-            return new TextDecoder().decode(bytes);
-        } catch (e) {
-            console.error("[Open in mpv] base64UrlDecodeToUtf8 error:", e);
-            return null;
-        }
-    }
-
-    function extractUrlFromPlayerHash(hash) {
-        if (!hash || !hash.startsWith('#/player/')) {
-            return null;
-        }
-
-        let pathData = hash.substring('#/player/'.length);
-        const segments = pathData.split('/');
-
-        if (segments.length === 0) {
-            return null;
-        }
-
-        const videoInfoSegment = segments[0];
-
-        try {
-            const actualBase64String = decodeURIComponent(videoInfoSegment);
-            const decodedJsonString = base64UrlDecodeToUtf8(actualBase64String);
-
-            if (!decodedJsonString) {
-                console.error("[Open in mpv] Base64 decoding failed");
-                return null;
-            }
-
-            const jsonStartMarker = '{"url":';
-            let jsonStartIndex = decodedJsonString.indexOf(jsonStartMarker);
-            if (jsonStartIndex === -1) {
-                jsonStartIndex = decodedJsonString.indexOf('{');
-            }
-
-            if (jsonStartIndex === -1) {
-                console.error('[Open in mpv] Could not find start of JSON object');
-                return null;
-            }
-
-            const initialCleanedJson = decodedJsonString.substring(jsonStartIndex);
-            const lastBraceIndex = initialCleanedJson.lastIndexOf('}');
-
-            if (lastBraceIndex === -1) {
-                console.error("[Open in mpv] No closing '}' found in JSON data");
-                return null;
-            }
-
-            const finalCleanedJson = initialCleanedJson.substring(0, lastBraceIndex + 1);
-            const streamInfo = JSON.parse(finalCleanedJson);
-
-            if (streamInfo && streamInfo.url) {
-                return {
-                    url: streamInfo.url,
-                    name: streamInfo.name || 'Unknown'
-                };
-            }
-
-            return null;
-        } catch (e) {
-            console.error('[Open in mpv] Error processing video info:', e);
-            return null;
-        }
-    }
-
-    function getCurrentStremioStream() {
-        const hash = window.location.hash;
-        return extractUrlFromPlayerHash(hash);
-    }
-
-    function stopStremioPlayer() {
-        // Try to find and pause/stop the video element
-        const video = document.querySelector('video');
-        if (video) {
-            video.pause();
-            console.log('[Open in mpv] Paused video player');
-        }
-
-        // Also try to click the pause button if it exists
-        const pauseButton = document.querySelector('button[aria-label*="Pause"], button[title*="Pause"], .pause-button');
-        if (pauseButton) {
-            pauseButton.click();
-            console.log('[Open in mpv] Clicked pause button');
-        }
-    }
-
-    function isStremioSite() {
-        const hostname = window.location.hostname;
-        return hostname === 'web.stremio.com' ||
-               hostname === 'app.strem.io' ||
-               hostname === 'web.strem.io';
-    }
-
     // ==================== Core Functions ====================
 
     function notify(message) {
@@ -274,36 +160,16 @@
     }
 
     function buildYtdlFormat(overrideAudioOnly = null) {
-        // Use override if provided, otherwise use settings
         const audioOnly = overrideAudioOnly !== null ? overrideAudioOnly : settings.ytdlpAudioOnly;
 
-        // Audio only mode takes priority
         if (audioOnly) {
             return 'bestaudio/best';
         }
 
-        // Custom format string overrides quality presets
-        if (settings.ytdlpFormat && settings.ytdlpFormat.trim() !== '') {
-            return settings.ytdlpFormat.trim();
-        }
-
-        // Quality/resolution presets
         if (settings.ytdlpQuality && settings.ytdlpQuality !== '') {
             switch (settings.ytdlpQuality) {
                 case 'best':
                     return 'bestvideo+bestaudio/best';
-                case '2160p':
-                    return 'bestvideo[height<=?2160]+bestaudio/best';
-                case '1440p':
-                    return 'bestvideo[height<=?1440]+bestaudio/best';
-                case '1080p':
-                    return 'bestvideo[height<=?1080]+bestaudio/best';
-                case '720p':
-                    return 'bestvideo[height<=?720]+bestaudio/best';
-                case '480p':
-                    return 'bestvideo[height<=?480]+bestaudio/best';
-                case '360p':
-                    return 'bestvideo[height<=?360]+bestaudio/best';
                 case 'worst':
                     return 'worstvideo+worstaudio/worst';
             }
@@ -312,43 +178,22 @@
         return null;
     }
 
-    function buildYtdlpRawOptions() {
-        const options = [];
-
-        // Custom yt-dlp options
-        if (settings.ytdlpCustomOptions && settings.ytdlpCustomOptions.trim() !== '') {
-            // Parse custom options - split by comma or newline
-            const customOpts = settings.ytdlpCustomOptions.trim()
-                .split(/[,\n]/)
-                .map(opt => opt.trim())
-                .filter(opt => opt !== '');
-            options.push(...customOpts);
-        }
-
-        return options;
-    }
-
     function openInMpv(streamUrl, options = {}) {
         if (!streamUrl || streamUrl.trim() === '') {
             notify('Please enter a valid URL');
             return;
         }
 
-        // Trim whitespace
         streamUrl = streamUrl.trim();
 
-        // Stop browser media if enabled (and not overridden by options)
+        // Stop browser media if enabled
         if (settings.stopBrowserMedia && options.skipBrowserMediaStop !== true) {
             stopAllBrowserMedia();
         }
 
-        // Encode the URL
         const encodedUrl = encodeURIComponent(streamUrl);
-
-        // Build mpv:// protocol URL
         let mpvUrl = `mpv:///open?url=${encodedUrl}`;
 
-        // Add optional parameters
         if (settings.fullscreen) {
             mpvUrl += '&full_screen=1';
         }
@@ -365,57 +210,23 @@
             mpvUrl += '&new_window=1';
         }
 
-        if (settings.player && settings.player.trim() !== '') {
-            mpvUrl += `&player=${encodeURIComponent(settings.player.trim())}`;
-        }
-
-        // Build flags including yt-dlp options
-        let allFlags = [];
-
-        // Add existing custom flags
-        if (settings.flags && settings.flags.trim() !== '') {
-            allFlags.push(settings.flags.trim());
-        }
-
-        // Add ytdl-format flag for quality/format selection
-        // Use audioOnly override if provided in options
+        // Build flags for yt-dlp format
         const ytdlFormat = buildYtdlFormat(options.audioOnly);
         if (ytdlFormat) {
-            allFlags.push(`--ytdl-format=${ytdlFormat}`);
-        }
-
-        // Add yt-dlp raw options for other settings
-        const ytdlpOptions = buildYtdlpRawOptions();
-        if (ytdlpOptions.length > 0) {
-            // Format: --ytdl-raw-options=option1=value1,option2=value2
-            const ytdlpString = `--ytdl-raw-options=${ytdlpOptions.join(',')}`;
-            allFlags.push(ytdlpString);
-        }
-
-        if (allFlags.length > 0) {
-            mpvUrl += `&flags=${encodeURIComponent(allFlags.join(' '))}`;
+            const flags = `--ytdl-format=${ytdlFormat}`;
+            mpvUrl += `&flags=${encodeURIComponent(flags)}`;
         }
 
         console.log('[Open in mpv] Opening:', mpvUrl);
 
-        // Try to open the mpv:// URL
         try {
             GM_openInTab(mpvUrl, {
                 active: true,
                 insert: true
             });
-
-            // Run callback after opening (e.g., to pause Stremio)
-            if (options.onOpen) {
-                setTimeout(options.onOpen, 100);
-            }
         } catch (error) {
             console.error('[Open in mpv] Error:', error);
             window.open(mpvUrl, '_blank');
-
-            if (options.onOpen) {
-                setTimeout(options.onOpen, 100);
-            }
         }
     }
 
@@ -425,14 +236,12 @@
     }
 
     function createSettingsPanel() {
-        // Check if panel already exists
         if (document.getElementById('mpv-settings-overlay')) {
             document.getElementById('mpv-settings-overlay').style.display = 'flex';
             updateSettingsUI();
             return;
         }
 
-        // Create overlay
         const overlay = document.createElement('div');
         overlay.id = 'mpv-settings-overlay';
         overlay.style.cssText = `
@@ -449,14 +258,13 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         `;
 
-        // Create settings panel
         const panel = document.createElement('div');
         panel.style.cssText = `
             background: #1e1e1e;
             border-radius: 12px;
             padding: 24px;
-            min-width: 380px;
-            max-width: 450px;
+            min-width: 350px;
+            max-width: 400px;
             max-height: 90vh;
             overflow-y: auto;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
@@ -502,7 +310,6 @@
         header.appendChild(title);
         header.appendChild(closeBtn);
 
-        // Settings container
         const settingsContainer = document.createElement('div');
         settingsContainer.id = 'mpv-settings-container';
         settingsContainer.style.cssText = `
@@ -511,7 +318,6 @@
             gap: 12px;
         `;
 
-        // Section header function
         function createSectionHeader(text) {
             const header = document.createElement('div');
             header.style.cssText = `
@@ -527,7 +333,6 @@
             return header;
         }
 
-        // Create toggle switch function
         function createToggle(label, description, settingKey) {
             const row = document.createElement('div');
             row.style.cssText = `
@@ -630,142 +435,6 @@
             return row;
         }
 
-        // Create text input function
-        function createTextInput(label, description, settingKey, placeholder) {
-            const container = document.createElement('div');
-            container.style.cssText = `
-                padding: 12px 16px;
-                background: #2a2a2a;
-                border-radius: 8px;
-            `;
-
-            const labelContainer = document.createElement('div');
-            labelContainer.style.cssText = `
-                display: flex;
-                flex-direction: column;
-                gap: 2px;
-                margin-bottom: 10px;
-            `;
-
-            const labelEl = document.createElement('span');
-            labelEl.textContent = label;
-            labelEl.style.cssText = `
-                font-size: 14px;
-                color: #e0e0e0;
-            `;
-
-            const descEl = document.createElement('span');
-            descEl.textContent = description;
-            descEl.style.cssText = `
-                font-size: 11px;
-                color: #777;
-            `;
-
-            labelContainer.appendChild(labelEl);
-            labelContainer.appendChild(descEl);
-
-            const input = document.createElement('input');
-            input.type = 'text';
-            input.value = settings[settingKey];
-            input.placeholder = placeholder;
-            input.dataset.setting = settingKey;
-            input.style.cssText = `
-                width: 100%;
-                padding: 10px 12px;
-                background: #1e1e1e;
-                border: 1px solid #444;
-                border-radius: 6px;
-                color: #fff;
-                font-size: 13px;
-                box-sizing: border-box;
-                transition: border-color 0.2s;
-            `;
-
-            input.onfocus = () => input.style.borderColor = '#4CAF50';
-            input.onblur = () => input.style.borderColor = '#444';
-
-            input.oninput = () => {
-                settings[settingKey] = input.value;
-                GM_setValue(settingKey, input.value);
-                console.log(`[Open in mpv] ${settingKey}:`, input.value);
-            };
-
-            container.appendChild(labelContainer);
-            container.appendChild(input);
-
-            return container;
-        }
-
-        // Create textarea input function
-        function createTextareaInput(label, description, settingKey, placeholder, rows = 3) {
-            const container = document.createElement('div');
-            container.style.cssText = `
-                padding: 12px 16px;
-                background: #2a2a2a;
-                border-radius: 8px;
-            `;
-
-            const labelContainer = document.createElement('div');
-            labelContainer.style.cssText = `
-                display: flex;
-                flex-direction: column;
-                gap: 2px;
-                margin-bottom: 10px;
-            `;
-
-            const labelEl = document.createElement('span');
-            labelEl.textContent = label;
-            labelEl.style.cssText = `
-                font-size: 14px;
-                color: #e0e0e0;
-            `;
-
-            const descEl = document.createElement('span');
-            descEl.textContent = description;
-            descEl.style.cssText = `
-                font-size: 11px;
-                color: #777;
-            `;
-
-            labelContainer.appendChild(labelEl);
-            labelContainer.appendChild(descEl);
-
-            const textarea = document.createElement('textarea');
-            textarea.value = settings[settingKey];
-            textarea.placeholder = placeholder;
-            textarea.dataset.setting = settingKey;
-            textarea.rows = rows;
-            textarea.style.cssText = `
-                width: 100%;
-                padding: 10px 12px;
-                background: #1e1e1e;
-                border: 1px solid #444;
-                border-radius: 6px;
-                color: #fff;
-                font-size: 13px;
-                font-family: monospace;
-                box-sizing: border-box;
-                transition: border-color 0.2s;
-                resize: vertical;
-                min-height: 60px;
-            `;
-
-            textarea.onfocus = () => textarea.style.borderColor = '#4CAF50';
-            textarea.onblur = () => textarea.style.borderColor = '#444';
-
-            textarea.oninput = () => {
-                settings[settingKey] = textarea.value;
-                GM_setValue(settingKey, textarea.value);
-                console.log(`[Open in mpv] ${settingKey}:`, textarea.value);
-            };
-
-            container.appendChild(labelContainer);
-            container.appendChild(textarea);
-
-            return container;
-        }
-
-        // Create select dropdown function
         function createSelect(label, description, settingKey, options) {
             const container = document.createElement('div');
             container.style.cssText = `
@@ -852,12 +521,9 @@
 
         settingsContainer.appendChild(createToggle(
             'Picture-in-Picture',
-            'Start video in PiP mode (mpv only)',
+            'Start video in PiP mode',
             'pip'
         ));
-
-        // Queue Options Section
-        settingsContainer.appendChild(createSectionHeader('Queue Options'));
 
         settingsContainer.appendChild(createToggle(
             'Enqueue',
@@ -880,8 +546,8 @@
             'stopBrowserMedia'
         ));
 
-        // yt-dlp Options Section
-        settingsContainer.appendChild(createSectionHeader('yt-dlp Options'));
+        // Quality Options Section
+        settingsContainer.appendChild(createSectionHeader('Quality Options'));
 
         settingsContainer.appendChild(createSelect(
             'Video Quality',
@@ -898,46 +564,6 @@
             'Audio Only',
             'Extract and play audio only (no video)',
             'ytdlpAudioOnly'
-        ));
-
-        settingsContainer.appendChild(createTextInput(
-            'Custom Format',
-            'yt-dlp format string (overrides quality preset)',
-            'ytdlpFormat',
-            'e.g., bestvideo[ext=mp4]+bestaudio[ext=m4a]'
-        ));
-
-        settingsContainer.appendChild(createTextareaInput(
-            'Custom yt-dlp Options',
-            'Additional yt-dlp options (one per line or comma-separated)',
-            'ytdlpCustomOptions',
-            'e.g., cookies-from-browser=firefox\nno-playlist=\nage-limit=18'
-        ));
-
-        // Stremio Options Section
-        settingsContainer.appendChild(createSectionHeader('Stremio Options'));
-
-        settingsContainer.appendChild(createToggle(
-            'Pause on Open',
-            'Pause Stremio player when opening stream in mpv',
-            'stremioPauseOnOpen'
-        ));
-
-        // Advanced Options Section
-        settingsContainer.appendChild(createSectionHeader('Advanced Options'));
-
-        settingsContainer.appendChild(createTextInput(
-            'Player',
-            'Specify a different video player (leave empty for mpv)',
-            'player',
-            'e.g., celluloid, vlc, iina'
-        ));
-
-        settingsContainer.appendChild(createTextInput(
-            'Custom Flags',
-            'Additional mpv command-line flags',
-            'flags',
-            'e.g., --vo=gpu --hwdec=auto'
         ));
 
         // Footer
@@ -978,22 +604,15 @@
                     pip: false,
                     enqueue: false,
                     newWindow: false,
-                    player: '',
-                    flags: '',
-                    stremioPauseOnOpen: true,
                     stopBrowserMedia: true,
                     ytdlpQuality: '',
-                    ytdlpAudioOnly: false,
-                    ytdlpFormat: '',
-                    ytdlpCustomOptions: ''
+                    ytdlpAudioOnly: false
                 };
 
-                // Save defaults
                 Object.keys(settings).forEach(key => {
                     GM_setValue(key, settings[key]);
                 });
 
-                // Update UI
                 updateSettingsUI();
             }
         };
@@ -1018,20 +637,17 @@
         footer.appendChild(resetBtn);
         footer.appendChild(doneBtn);
 
-        // Assemble panel
         panel.appendChild(header);
         panel.appendChild(settingsContainer);
         panel.appendChild(footer);
         overlay.appendChild(panel);
 
-        // Close on overlay click (but not panel click)
         overlay.onclick = (e) => {
             if (e.target === overlay) {
                 overlay.style.display = 'none';
             }
         };
 
-        // Close on Escape key
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && overlay.style.display === 'flex') {
                 overlay.style.display = 'none';
@@ -1045,7 +661,6 @@
         const container = document.getElementById('mpv-settings-container');
         if (!container) return;
 
-        // Update toggles
         container.querySelectorAll('input[type="checkbox"]').forEach(input => {
             const key = input.dataset.setting;
             if (key && settings.hasOwnProperty(key)) {
@@ -1057,23 +672,6 @@
             }
         });
 
-        // Update text inputs
-        container.querySelectorAll('input[type="text"]').forEach(input => {
-            const key = input.dataset.setting;
-            if (key && settings.hasOwnProperty(key)) {
-                input.value = settings[key];
-            }
-        });
-
-        // Update textareas
-        container.querySelectorAll('textarea').forEach(textarea => {
-            const key = textarea.dataset.setting;
-            if (key && settings.hasOwnProperty(key)) {
-                textarea.value = settings[key];
-            }
-        });
-
-        // Update selects
         container.querySelectorAll('select').forEach(select => {
             const key = select.dataset.setting;
             if (key && settings.hasOwnProperty(key)) {
@@ -1084,7 +682,6 @@
 
     // ==================== Menu Commands ====================
 
-    // Register menu command to open user-input URL in mpv
     GM_registerMenuCommand('🔗 Open URL in mpv', () => {
         const url = getUserInput();
         if (url) {
@@ -1092,32 +689,14 @@
         }
     });
 
-    // Register menu command to open current page URL in mpv
     GM_registerMenuCommand('▶️ Open in mpv', () => {
         openInMpv(window.location.href);
     });
 
-    // Register menu command to open current page as audio only
     GM_registerMenuCommand('🎵 Open as audio in mpv', () => {
         openInMpv(window.location.href, { audioOnly: true });
     });
 
-    // Register Stremio-specific menu command only on Stremio sites
-    if (isStremioSite()) {
-        GM_registerMenuCommand('🎬 Play current Stremio stream', () => {
-            const stream = getCurrentStremioStream();
-            if (stream) {
-                console.log('[Open in mpv] Opening Stremio stream:', stream.name);
-                openInMpv(stream.url, {
-                    onOpen: settings.stremioPauseOnOpen ? stopStremioPlayer : null
-                });
-            } else {
-                notify('No active stream found. Please navigate to a player page first.');
-            }
-        });
-    }
-
-    // Register menu command to open settings
     GM_registerMenuCommand('⚙️ Settings', () => {
         createSettingsPanel();
     });
