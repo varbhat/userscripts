@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         Stremio with mpv
 // @namespace    https://github.com/varbhat/userscripts
-// @version      1.1
+// @version      1.3
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=stremio.com
-// @description  Integrates stremio web with mpv
+// @description  Integrates stremio web with mpv (with Android support)
 // @author       https://github.com/varbhat
 // @match        https://web.stremio.com/*
 // @grant        GM_openInTab
@@ -24,7 +24,8 @@
         player: GM_getValue('player', ''),
         flags: GM_getValue('flags', ''),
         stopBrowserMedia: GM_getValue('stopBrowserMedia', true),
-        pauseStremioOnOpen: GM_getValue('pauseStremioOnOpen', true)
+        pauseStremioOnOpen: GM_getValue('pauseStremioOnOpen', true),
+        androidMode: GM_getValue('androidMode', false)
     };
 
     // ==================== Stremio Stream Extraction ====================
@@ -211,7 +212,7 @@
             return sectionHeader;
         }
 
-        function createToggle(label, description, settingKey) {
+        function createToggle(label, description, settingKey, extraClass = '') {
             const row = document.createElement('div');
             row.style.cssText = `
                 display: flex;
@@ -221,6 +222,7 @@
                 background: #2a2a2a;
                 border-radius: 8px;
             `;
+            if (extraClass) row.classList.add(extraClass);
 
             const labelContainer = document.createElement('div');
             labelContainer.style.cssText = `
@@ -287,6 +289,11 @@
                 knob.style.left = isChecked ? '25px' : '3px';
                 settings[settingKey] = isChecked;
                 GM_setValue(settingKey, isChecked);
+                
+                // Update visibility of desktop-only options when Android mode changes
+                if (settingKey === 'androidMode') {
+                    updateDesktopOptionsVisibility();
+                }
             };
 
             toggle.appendChild(input);
@@ -344,15 +351,33 @@
 
             return container;
         }
+        
+        function updateDesktopOptionsVisibility() {
+            const desktopOptions = document.querySelectorAll('.desktop-only-option');
+            desktopOptions.forEach(option => {
+                option.style.display = settings.androidMode ? 'none' : 'flex';
+            });
+        }
 
         // Build settings UI
+        
+        // Android Mode Section (at the top for prominence)
+        settingsContainer.appendChild(createSectionHeader('Platform'));
+        const androidToggle = createToggle('Android Mode', 'Use mpv-android intent (for Android devices)', 'androidMode');
+        androidToggle.style.background = '#2a2a3a'; // Slightly different color to stand out
+        settingsContainer.appendChild(androidToggle);
+        
         settingsContainer.appendChild(createSectionHeader('Playback Options'));
-        settingsContainer.appendChild(createToggle('Fullscreen', 'Start video in fullscreen mode', 'fullscreen'));
-        settingsContainer.appendChild(createToggle('Picture-in-Picture', 'Start video in PiP mode', 'pip'));
+        const fullscreenToggle = createToggle('Fullscreen', 'Start video in fullscreen mode', 'fullscreen', 'desktop-only-option');
+        settingsContainer.appendChild(fullscreenToggle);
+        const pipToggle = createToggle('Picture-in-Picture', 'Start video in PiP mode', 'pip', 'desktop-only-option');
+        settingsContainer.appendChild(pipToggle);
 
         settingsContainer.appendChild(createSectionHeader('Queue Options'));
-        settingsContainer.appendChild(createToggle('Enqueue', 'Add to queue instead of playing', 'enqueue'));
-        settingsContainer.appendChild(createToggle('New Window', 'Open in a new window', 'newWindow'));
+        const enqueueToggle = createToggle('Enqueue', 'Add to queue instead of playing', 'enqueue', 'desktop-only-option');
+        settingsContainer.appendChild(enqueueToggle);
+        const newWindowToggle = createToggle('New Window', 'Open in a new window', 'newWindow', 'desktop-only-option');
+        settingsContainer.appendChild(newWindowToggle);
 
         settingsContainer.appendChild(createSectionHeader('Browser & Stremio'));
         settingsContainer.appendChild(createToggle('Stop Browser Media', 'Pause browser media when opening', 'stopBrowserMedia'));
@@ -386,10 +411,12 @@
             if (confirm('Reset all settings to defaults?')) {
                 settings = {
                     fullscreen: true, pip: false, enqueue: false, newWindow: false,
-                    player: '', flags: '', stopBrowserMedia: true, pauseStremioOnOpen: true
+                    player: '', flags: '', stopBrowserMedia: true, pauseStremioOnOpen: true,
+                    androidMode: false
                 };
                 Object.keys(settings).forEach(key => GM_setValue(key, settings[key]));
                 updateSettingsUI();
+                updateDesktopOptionsVisibility();
             }
         };
 
@@ -424,6 +451,9 @@
         });
 
         document.body.appendChild(overlay);
+        
+        // Initial visibility update
+        updateDesktopOptionsVisibility();
     }
 
     function updateSettingsUI() {
@@ -496,6 +526,49 @@
         if (video && !video.paused) video.pause();
     }
 
+    // Build Android intent URL for mpv-android
+    function buildAndroidIntentUrl(streamUrl, title = '') {
+        // Intent format: intent://URL#Intent;scheme=https;package=is.xyz.mpv;type=video/any;S.title=TITLE;end
+        // We use type=video/any to force mpv to open regardless of extension
+        
+        let intentUrl;
+        
+        // Parse the stream URL to get scheme and path
+        try {
+            const urlObj = new URL(streamUrl);
+            const scheme = urlObj.protocol.replace(':', ''); // Remove trailing colon
+            const urlWithoutScheme = streamUrl.replace(`${scheme}://`, '');
+            
+            // Build the intent URL
+            // Format: intent://host/path#Intent;scheme=SCHEME;package=is.xyz.mpv;type=video/any;end
+            intentUrl = `intent://${urlWithoutScheme}#Intent;`;
+            intentUrl += `scheme=${scheme};`;
+            intentUrl += `package=is.xyz.mpv;`;
+            intentUrl += `action=android.intent.action.VIEW;`;
+            intentUrl += `type=video/any;`; // Force mpv to open regardless of extension
+            
+            // Add title if provided
+            if (title) {
+                // S. prefix for String extra
+                intentUrl += `S.title=${encodeURIComponent(title)};`;
+            }
+            
+            intentUrl += `end`;
+            
+        } catch (e) {
+            console.error('[Stremio mpv] Error building Android intent URL:', e);
+            // Fallback: try direct intent with the URL as-is
+            intentUrl = `intent://${streamUrl.replace(/^https?:\/\//, '')}#Intent;`;
+            intentUrl += `scheme=https;`;
+            intentUrl += `package=is.xyz.mpv;`;
+            intentUrl += `action=android.intent.action.VIEW;`;
+            intentUrl += `type=video/any;`;
+            intentUrl += `end`;
+        }
+        
+        return intentUrl;
+    }
+
     function openInMpv(streamUrl, options = {}) {
         if (!streamUrl || streamUrl.trim() === '') {
             notify('No stream URL found', true);
@@ -508,24 +581,40 @@
             stopAllBrowserMedia();
         }
 
-        const encodedUrl = encodeURIComponent(streamUrl);
-        let mpvUrl = `mpv:///open?url=${encodedUrl}`;
+        let launchUrl;
+        
+        if (settings.androidMode) {
+            // Use Android intent for mpv-android
+            launchUrl = buildAndroidIntentUrl(streamUrl, options.title || '');
+            console.log('[Stremio mpv] Opening with Android intent:', launchUrl);
+        } else {
+            // Use desktop mpv:// protocol
+            const encodedUrl = encodeURIComponent(streamUrl);
+            launchUrl = `mpv:///open?url=${encodedUrl}`;
 
-        if (settings.fullscreen) mpvUrl += '&full_screen=1';
-        if (settings.pip) mpvUrl += '&pip=1';
-        if (settings.enqueue) mpvUrl += '&enqueue=1';
-        if (settings.newWindow) mpvUrl += '&new_window=1';
-        if (settings.player) mpvUrl += `&player=${encodeURIComponent(settings.player)}`;
-        if (settings.flags) mpvUrl += `&flags=${encodeURIComponent(settings.flags)}`;
-
-        console.log('[Stremio mpv] Opening:', mpvUrl);
+            if (settings.fullscreen) launchUrl += '&full_screen=1';
+            if (settings.pip) launchUrl += '&pip=1';
+            if (settings.enqueue) launchUrl += '&enqueue=1';
+            if (settings.newWindow) launchUrl += '&new_window=1';
+            if (settings.player) launchUrl += `&player=${encodeURIComponent(settings.player)}`;
+            if (settings.flags) launchUrl += `&flags=${encodeURIComponent(settings.flags)}`;
+            
+            console.log('[Stremio mpv] Opening with desktop protocol:', launchUrl);
+        }
 
         try {
-            GM_openInTab(mpvUrl, { active: true, insert: true });
+            if (settings.androidMode) {
+                // For Android, we need to navigate directly to the intent URL
+                window.location.href = launchUrl;
+            } else {
+                // For desktop, use GM_openInTab
+                GM_openInTab(launchUrl, { active: true, insert: true });
+            }
             if (options.onOpen) setTimeout(options.onOpen, 100);
         } catch (error) {
             console.error('[Stremio mpv] Error:', error);
-            window.open(mpvUrl, '_blank');
+            // Fallback
+            window.open(launchUrl, '_blank');
             if (options.onOpen) setTimeout(options.onOpen, 100);
         }
     }
@@ -534,6 +623,7 @@
         const stream = getCurrentStremioStream();
         if (stream) {
             openInMpv(stream.url, {
+                title: stream.name,
                 onOpen: () => {
                     if (settings.pauseStremioOnOpen) stopStremioPlayer();
                 }
@@ -675,6 +765,7 @@
                 const streamInfo = extractUrlFromPlayerHash(href);
                 if (streamInfo && streamInfo.url) {
                     openInMpv(streamInfo.url, {
+                        title: streamInfo.name,
                         onOpen: () => {
                             if (settings.pauseStremioOnOpen) stopStremioPlayer();
                         }
@@ -783,6 +874,7 @@
 
             if (stream) {
                 openInMpv(stream.url, {
+                    title: stream.name,
                     onOpen: () => {
                         if (settings.pauseStremioOnOpen) stopStremioPlayer();
                         document.body.click();
@@ -900,4 +992,5 @@
 
     console.log('[Stremio mpv] Userscript loaded');
     console.log('[Stremio mpv] Keyboard shortcut: Alt+M');
+    console.log('[Stremio mpv] Android mode:', settings.androidMode ? 'enabled' : 'disabled');
 })();
